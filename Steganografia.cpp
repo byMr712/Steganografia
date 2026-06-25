@@ -49,7 +49,7 @@ int main() {
     int choice;
     do {
         system("cls");
-        cout << "=== SteganoMIX v1.04 ===";
+        cout << "=== SteganoMIX v1.05 ===";
         cout << "\nHide and view your information in a BMP file\n";
         cout << "\n=== Main menu ===\n";
         cout << "1. Hide information\n";
@@ -927,20 +927,62 @@ void programTester() {
 }
 
 void programHelper() {
-    int choice;
-    do {
-        system("cls");
-        cout << "=== Welcome to ProgramHelper ===\n";
-        cout << "1. About hide information\n";
-        cout << "2. About view information\n";
-        cout << "3. About detect secret in BMP\n";
-        cout << "0. Return to menu\n\n";
-        choice = _getch() - '0';
-        switch (choice) {
-        case 0: return;
-        default: break;
-        }
-    } while (choice != 0);
+    system("cls");
+    cout << "=== SteganoMIX v1.04 - Help ===" << endl;
+    cout << endl;
+    cout << "=== Program description ===" << endl;
+    cout << "The program is designed to hide and extract text information" << endl;
+    cout << "in 24-bit BMP images using the LSB (Least Significant Bit) method." << endl;
+    cout << endl;
+    cout << "=== Main features ===" << endl;
+    cout << "1. Hide text in BMP images (with/without encryption)" << endl;
+    cout << "2. Extract hidden text from BMP images" << endl;
+    cout << "3. Detect the presence of hidden information" << endl;
+    cout << "4. Configurable packing level (3-9 bits per channel)" << endl;
+    cout << "5. Encryption with seed (random pixel distribution)" << endl;
+    cout << endl;
+    cout << "=== How to hide text ===" << endl;
+    cout << "1. Select 'Hide information' in the main menu" << endl;
+    cout << "2. Choose LSB Algorithm" << endl;
+    cout << "3. Select a BMP image" << endl;
+    cout << "4. Enter the text to hide" << endl;
+    cout << "5. If encryption is ON, save the generated seed" << endl;
+    cout << "6. The file will be saved in the 'output_img' folder" << endl;
+    cout << endl;
+    cout << "=== How to extract text ===" << endl;
+    cout << "1. Select 'View information' in the main menu" << endl;
+    cout << "2. Select the BMP image with hidden text" << endl;
+    cout << "3. If the file was encrypted, enter the seed" << endl;
+    cout << "4. If the file is not encrypted, press Enter" << endl;
+    cout << "5. The hidden text and file type will be displayed" << endl;
+    cout << endl;
+    cout << "=== How to detect a secret ===" << endl;
+    cout << "1. Select 'Detect secret in BMP' in the main menu" << endl;
+    cout << "2. Select the BMP image to check" << endl;
+    cout << "3. The program will report the presence of hidden information" << endl;
+    cout << endl;
+    cout << "=== Settings ===" << endl;
+    cout << "1. Encryption ON/OFF - enables/disables random pixel placement" << endl;
+    cout << "2. Add suffix to filename - adds _hidden or _encrypted_seed" << endl;
+    cout << "3. Add seed to filename - adds the seed to the file name" << endl;
+    cout << "4. Pack level (3-9) - number of bits per color channel" << endl;
+    cout << "   (higher = more capacity, lower quality)" << endl;
+    cout << endl;
+    cout << "=== File structure ===" << endl;
+    cout << "Pixel (0,0) - feature '/' (indicates the presence of a secret)" << endl;
+    cout << "Pixels (0,1)... - text size with delimiter ':'" << endl;
+    cout << "Pixels (4,0)... - hidden text" << endl;
+    cout << endl;
+    cout << "=== Supported file formats ===" << endl;
+    cout << "BMP" << endl;
+    cout << endl;
+    cout << "=== Recommendations ===" << endl;
+    cout << "Use large images (640x480 or more) to hide large texts." << endl;
+    cout << "Save the seed when encrypting - it is needed to decrypt." << endl;
+    cout << "Use pack level 3-5 for good image quality." << endl;
+    cout << endl;
+    cout << "Press any key to return to the main menu..." << endl;
+    (void)_getch();  
 }
 
 void exitProgram() {
