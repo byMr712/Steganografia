@@ -79,8 +79,8 @@ int main() {
 
 // ============ СТРУКТУРА ЦВЕТА ============
 struct PixelColor {
-    uint8_t R, G, B;
-    PixelColor(uint8_t r = 0, uint8_t g = 0, uint8_t b = 0) : R(r), G(g), B(b) {}
+    unsigned char R, G, B;
+    PixelColor(unsigned char r = 0, unsigned char g = 0, unsigned char b = 0) : R(r), G(g), B(b) {}
 };
 
 // ============ БАЗОВЫЕ ФУНКЦИИ ============
@@ -194,9 +194,9 @@ PixelColor GetPixelColor(Bitmap* bPic, int x, int y) {
     Color color;
     bPic->GetPixel(x, y, &color);
     return PixelColor(
-        static_cast<uint8_t>(color.GetR()),
-        static_cast<uint8_t>(color.GetG()),
-        static_cast<uint8_t>(color.GetB())
+        static_cast<unsigned char>(color.GetR()),
+        static_cast<unsigned char>(color.GetG()),
+        static_cast<unsigned char>(color.GetB())
     );
 }
 
