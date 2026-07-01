@@ -93,111 +93,59 @@ unsigned char BitToByte(const bitset<8>& scr) {
     return static_cast<unsigned char>(scr.to_ulong());
 }
 
-PixelColor EmbedSymbolToColor(const PixelColor& curColor, unsigned char symbol) {
-    bitset<8> symbolBits = ByteToBit(symbol);
-    PixelColor result = curColor;
-
-    bitset<8> tempR = ByteToBit(curColor.R);
-    tempR[0] = symbolBits[0];
-    tempR[1] = symbolBits[1];
-    result.R = BitToByte(tempR);
-
-    bitset<8> tempG = ByteToBit(curColor.G);
-    tempG[0] = symbolBits[2];
-    tempG[1] = symbolBits[3];
-    tempG[2] = symbolBits[4];
-    result.G = BitToByte(tempG);
-
-    bitset<8> tempB = ByteToBit(curColor.B);
-    tempB[0] = symbolBits[5];
-    tempB[1] = symbolBits[6];
-    tempB[2] = symbolBits[7];
-    result.B = BitToByte(tempB);
-
-    return result;
-}
-
-bool isEncryption(const PixelColor& pixelColor) {
-    unsigned char extracted = 0;
-    extracted |= (pixelColor.R & 0x03);
-    extracted |= ((pixelColor.G & 0x07) << 2);
-    extracted |= ((pixelColor.B & 0x07) << 5);
-    return (extracted == '/');
-}
-
-// ============ СТЕПЕНЬ УПАКОВКИ ============
-int GetBitsPerChannel(int packLevel) {
-    if (packLevel <= 0 || packLevel > 3) {
-        packLevel = 1;
-    }
-
-    switch (packLevel) {
-    case 1: return 3;
-    case 2: return 6;
-    case 3: return 8;
-    default: return 3;
-    }
-}
-
-int GetBitsPerPixel(int packLevel) {
-    if (packLevel <= 0 || packLevel > 3) {
-        packLevel = 1;
-    }
-    return GetBitsPerChannel(packLevel) * 3;
-}
-
 int GetMaxCapacity(int width, int height, int packLevel) {
     if (packLevel <= 0 || packLevel > 3) {
         packLevel = 1;
     }
 
     int availablePixels = width * height - width * 2;
-
     if (availablePixels <= 0) return 0;
 
+    // packLevel = количество байт на пиксель
     return availablePixels * packLevel;
 }
 
-unsigned char GetBitMask(int packLevel) {
-    if (packLevel <= 0 || packLevel > 3) {
-        packLevel = 1;
-    }
-
-    int bitsPerChannel = GetBitsPerChannel(packLevel);
-    if (bitsPerChannel >= 8) return 0xFF;
-    return (1 << bitsPerChannel) - 1;
-}
-
+// ============ ДЛЯ СЛУЖЕБНОЙ ИНФОРМАЦИИ (СТАРАЯ СХЕМА) ============
 PixelColor EmbedSymbolToColorLevel(const PixelColor& curColor, unsigned char symbol, int packLevel) {
-    if (packLevel <= 0 || packLevel > 3) {
-        packLevel = 1;
-    }
-
     PixelColor result = curColor;
-    int bitsPerChannel = GetBitsPerChannel(packLevel);
-    unsigned char mask = GetBitMask(packLevel);
-
-    result.R = (curColor.R & ~mask) | (symbol & mask);
-    result.G = (curColor.G & ~mask) | ((symbol >> bitsPerChannel) & mask);
-    result.B = (curColor.B & ~mask) | ((symbol >> (bitsPerChannel * 2)) & mask);
-
+    // R: 2 бита (0-1)
+    result.R = (curColor.R & 0xFC) | (symbol & 0x03);
+    // G: 3 бита (2-4)
+    result.G = (curColor.G & 0xF8) | ((symbol >> 2) & 0x07);
+    // B: 3 бита (5-7)
+    result.B = (curColor.B & 0xF8) | ((symbol >> 5) & 0x07);
     return result;
 }
 
 unsigned char ExtractSymbolFromColorLevel(const PixelColor& color, int packLevel) {
-    if (packLevel <= 0 || packLevel > 3) {
-        packLevel = 1;
-    }
-
-    int bitsPerChannel = GetBitsPerChannel(packLevel);
-    unsigned char mask = GetBitMask(packLevel);
-
     unsigned char extracted = 0;
-    extracted |= (color.R & mask);
-    extracted |= ((color.G & mask) << bitsPerChannel);
-    extracted |= ((color.B & mask) << (bitsPerChannel * 2));
-
+    extracted |= (color.R & 0x03);
+    extracted |= ((color.G & 0x07) << 2);
+    extracted |= ((color.B & 0x07) << 5);
     return extracted;
+}
+
+// ============ ДЛЯ ДАННЫХ (НОВАЯ СХЕМА) ============
+PixelColor EmbedDataToColorLevel(const PixelColor& curColor, unsigned int data, int packLevel) {
+    PixelColor result = curColor;
+    if (packLevel == 1) {
+        result.R = (curColor.R & 0xF8) | (data & 0x07);
+        result.G = (curColor.G & 0xF8) | ((data >> 3) & 0x07);
+        result.B = (curColor.B & 0xFC) | ((data >> 6) & 0x03);
+    }
+    // ... остальные packLevel
+    return result;
+}
+
+unsigned int ExtractDataFromColorLevel(const PixelColor& color, int packLevel) {
+    unsigned int data = 0;
+    if (packLevel == 1) {
+        data = (color.R & 0x07);
+        data |= ((color.G & 0x07) << 3);
+        data |= ((color.B & 0x03) << 6);
+    }
+    // ... остальные packLevel
+    return data;
 }
 
 // ============ РАБОТА С BMP ============
@@ -219,6 +167,7 @@ void SetPixelColor(Bitmap* bPic, int x, int y, const PixelColor& color) {
 // ============ ПРОВЕРКА УРОВНЯ УПАКОВКИ ============
 int ReadPackLevel(Bitmap* bPic) {
     PixelColor color = GetPixelColor(bPic, 0, 0);
+    // Читаем с packLevel=1
     unsigned char ch = ExtractSymbolFromColorLevel(color, 1);
 
     if (ch >= '1' && ch <= '3') {
@@ -228,41 +177,37 @@ int ReadPackLevel(Bitmap* bPic) {
 }
 
 // ============ ЧТЕНИЕ КОЛИЧЕСТВА СИМВОЛОВ ============
-int ReadCountTextDynamic(Bitmap* src, int packLevel, int startPos = 5) {
-    if (packLevel <= 0 || packLevel > 3) {
-        packLevel = 1;
-    }
-
+int ReadCountTextDynamic(Bitmap* src, int packLevel, int startPos = 5, int row = 0) {
     string countStr = "";
     int i = startPos;
 
+    cout << "DEBUG ReadCountTextDynamic: startPos=" << startPos << ", row=" << row << endl;
+
     while (true) {
-        PixelColor color = GetPixelColor(src, 0, i);
-        unsigned char ch = ExtractSymbolFromColorLevel(color, packLevel);
+        PixelColor color = GetPixelColor(src, i, row);
+        unsigned char ch = ExtractSymbolFromColorLevel(color, 1);
 
-        if (ch == ':') {
-            break;
-        }
+        cout << "  pos=" << i << ", char='" << (char)ch << "' (0x" << hex << (int)ch << dec << ")" << endl;
 
+        if (ch == ':') break;
         if (ch >= '0' && ch <= '9') {
             countStr += static_cast<char>(ch);
         }
         else {
+            cout << "  Not a digit, stopping" << endl;
             return 0;
         }
-
         i++;
     }
 
-    if (countStr.empty()) {
-        return 0;
-    }
+    cout << "  countStr='" << countStr << "'" << endl;
 
+    if (countStr.empty()) return 0;
     return stoi(countStr);
 }
 
 // ============ ДУБЛИРОВАНИЕ СЛУЖЕБНОЙ ИНФОРМАЦИИ ============
-void CopyServiceDataToLastRow(Bitmap* bPic) {
+void CopyServiceDataToLastRow(Bitmap* bPic, int savedTextSize) {
     int width = bPic->GetWidth();
     int height = bPic->GetHeight();
     int lastRow = height - 1;
@@ -272,39 +217,42 @@ void CopyServiceDataToLastRow(Bitmap* bPic) {
         packLevel = 1;
     }
 
-    // Читаем служебную информацию из первой строки
+    // Читаем служебную информацию из первой строки (всегда с packLevel=1)
     PixelColor color00 = GetPixelColor(bPic, 0, 0);
     unsigned char packLevelChar = ExtractSymbolFromColorLevel(color00, 1);
 
     PixelColor color01 = GetPixelColor(bPic, 0, 1);
-    unsigned char marker = ExtractSymbolFromColorLevel(color01, packLevel);
+    unsigned char marker = ExtractSymbolFromColorLevel(color01, 1);
 
     string extension = "";
     for (int i = 2; i <= 4; i++) {
         PixelColor color = GetPixelColor(bPic, 0, i);
-        extension += static_cast<char>(ExtractSymbolFromColorLevel(color, packLevel));
+        extension += static_cast<char>(ExtractSymbolFromColorLevel(color, 1));
     }
 
-    int textSize = ReadCountTextDynamic(bPic, packLevel, 5);
+    // ИСПОЛЬЗУЕМ ПЕРЕДАННОЕ ЗНАЧЕНИЕ ВМЕСТО ЧТЕНИЯ ИЗ ПЕРВОЙ СТРОКИ!
+    int textSize = savedTextSize;
     string sizeStr = to_string(textSize) + ":";
 
-    // Записываем служебную информацию в последнюю строку
+    cout << "DEBUG CopyServiceDataToLastRow: savedTextSize=" << savedTextSize << ", sizeStr='" << sizeStr << "'" << endl;
+
+    // Записываем служебную информацию в последнюю строку (всегда с packLevel=1)
     PixelColor dest00 = GetPixelColor(bPic, 0, lastRow);
     SetPixelColor(bPic, 0, lastRow, EmbedSymbolToColorLevel(dest00, packLevelChar, 1));
 
     PixelColor dest01 = GetPixelColor(bPic, 1, lastRow);
-    SetPixelColor(bPic, 1, lastRow, EmbedSymbolToColorLevel(dest01, marker, packLevel));
+    SetPixelColor(bPic, 1, lastRow, EmbedSymbolToColorLevel(dest01, marker, 1));
 
     for (unsigned i = 0; i < extension.length(); i++) {
         PixelColor destColor = GetPixelColor(bPic, 2 + i, lastRow);
         SetPixelColor(bPic, 2 + i, lastRow,
-            EmbedSymbolToColorLevel(destColor, extension[i], packLevel));
+            EmbedSymbolToColorLevel(destColor, extension[i], 1));
     }
 
     for (unsigned i = 0; i < sizeStr.length(); i++) {
         PixelColor destColor = GetPixelColor(bPic, 5 + i, lastRow);
         SetPixelColor(bPic, 5 + i, lastRow,
-            EmbedSymbolToColorLevel(destColor, sizeStr[i], packLevel));
+            EmbedSymbolToColorLevel(destColor, sizeStr[i], 1));
     }
 }
 
@@ -332,7 +280,8 @@ bool CheckImageSize(Bitmap* bPic) {
 bool isEncryptionInBMPLevel(Bitmap* bPic) {
     int packLevel = ReadPackLevel(bPic);
     PixelColor color = GetPixelColor(bPic, 0, 1);
-    return (ExtractSymbolFromColorLevel(color, packLevel) == '/');
+    // Читаем с packLevel=1 (служебная информация)
+    return (ExtractSymbolFromColorLevel(color, 1) == '/');
 }
 
 // ============ ГЕНЕРАЦИЯ SEED ============
@@ -378,20 +327,22 @@ vector<PixelPosition> GenerateRandomPositions(int width, int height, int count, 
     return positions;
 }
 
-// ============ ЗАПИСЬ КОЛИЧЕСТВА СИМВОЛОВ ============
 void WriteCountTextDynamic(int count, Bitmap* src, int packLevel) {
-    if (packLevel <= 0 || packLevel > 3) {
-        packLevel = 1;
-    }
-
     string countStr = to_string(count) + ":";
     int startPos = 5;
+
+    cout << "DEBUG WriteCountTextDynamic: count=" << count << ", countStr='" << countStr << "'" << endl;
 
     for (unsigned i = 0; i < countStr.length(); i++) {
         unsigned char symbol = static_cast<unsigned char>(countStr[i]);
         PixelColor curColor = GetPixelColor(src, 0, startPos + static_cast<int>(i));
-        PixelColor newColor = EmbedSymbolToColorLevel(curColor, symbol, packLevel);
+        PixelColor newColor = EmbedSymbolToColorLevel(curColor, symbol, 1);
         SetPixelColor(src, 0, startPos + static_cast<int>(i), newColor);
+
+        // Проверяем что записали
+        PixelColor checkColor = GetPixelColor(src, 0, startPos + static_cast<int>(i));
+        unsigned char checkCh = ExtractSymbolFromColorLevel(checkColor, 1);
+        cout << "  Wrote '" << (char)symbol << "' at (0," << startPos + i << "), read back '" << (char)checkCh << "'" << endl;
     }
 }
 
@@ -420,38 +371,46 @@ void HideTextInBMP(Bitmap* bPic, const string& text, const char* extension) {
         return;
     }
 
-    // 1. packLevel в (0,0) с packLevel=1
+    // 1. packLevel в (0,0) с packLevel=1 (всегда)
     PixelColor pixel00 = GetPixelColor(bPic, 0, 0);
     char packLevelChar = '0' + packLevel;
     SetPixelColor(bPic, 0, 0, EmbedSymbolToColorLevel(pixel00, packLevelChar, 1));
 
-    // 2. Признак в (0,1) с packLevel из настроек
+    // 2. Признак в (0,1) с packLevel=1 (всегда)
     PixelColor pixel01 = GetPixelColor(bPic, 0, 1);
-    SetPixelColor(bPic, 0, 1, EmbedSymbolToColorLevel(pixel01, '/', packLevel));
+    SetPixelColor(bPic, 0, 1, EmbedSymbolToColorLevel(pixel01, '/', 1));
 
-    // 3. Расширение в (0,2)-(0,4) с packLevel из настроек
+    // 3. Расширение в (0,2)-(0,4) с packLevel=1 (всегда)
     for (unsigned i = 0; i < extensionStr.length(); i++) {
         PixelColor curColor = GetPixelColor(bPic, 0, 2 + static_cast<int>(i));
         SetPixelColor(bPic, 0, 2 + static_cast<int>(i),
-            EmbedSymbolToColorLevel(curColor, extensionStr[i], packLevel));
+            EmbedSymbolToColorLevel(curColor, extensionStr[i], 1));
     }
 
     // 4. Размер в (0,5)... с packLevel из настроек
     WriteCountTextDynamic(CountText, bPic, packLevel);
 
-    // 5. Текст
-    int index = 0;
-    for (int i = 4; i < width && index < CountText; i++) {
-        for (int j = 0; j < height - 1 && index < CountText; j++) {
-            PixelColor pixelColor = GetPixelColor(bPic, i, j);
-            PixelColor newColor = EmbedSymbolToColorLevel(pixelColor, bList[index], packLevel);
-            SetPixelColor(bPic, i, j, newColor);
-            index++;
+    // 5. Текст (последовательно, без шифрования)
+    int bytesPerPixel = packLevel;
+    int byteIndex = 0;
+
+    for (int x = 4; x < width && byteIndex < CountText; x++) {
+        for (int y = 0; y < height - 1 && byteIndex < CountText; y++) {
+            // Собираем packLevel байт в одно число
+            unsigned int combinedData = 0;
+            for (int b = 0; b < bytesPerPixel && byteIndex < CountText; b++) {
+                combinedData |= (static_cast<unsigned int>(bList[byteIndex]) << (b * 8));
+                byteIndex++;
+            }
+
+            PixelColor pixelColor = GetPixelColor(bPic, x, y);
+            PixelColor newColor = EmbedDataToColorLevel(pixelColor, combinedData, packLevel);
+            SetPixelColor(bPic, x, y, newColor);
         }
     }
 
     // 6. Дублируем служебную информацию
-    CopyServiceDataToLastRow(bPic);
+    CopyServiceDataToLastRow(bPic, CountText);
 }
 
 // ============ ЗАПИСЬ СИМВОЛОВ В BMP (С ШИФРОВАНИЕМ) ============
@@ -487,7 +446,7 @@ void HideTextInBMP_Encrypted(Bitmap* bPic, const string& text, unsigned int seed
 
     // 2. Признак в (0,1) с packLevel из настроек
     PixelColor pixel01 = GetPixelColor(bPic, 0, 1);
-    SetPixelColor(bPic, 0, 1, EmbedSymbolToColorLevel(pixel01, '/', packLevel));
+    SetPixelColor(bPic, 0, 1, EmbedSymbolToColorLevel(pixel01, '/', 1));
 
     // 3. Расширение в (0,2)-(0,4) с packLevel из настроек
     for (unsigned i = 0; i < extensionStr.length(); i++) {
@@ -500,23 +459,29 @@ void HideTextInBMP_Encrypted(Bitmap* bPic, const string& text, unsigned int seed
     WriteCountTextDynamic(CountText, bPic, packLevel);
 
     // 5. Текст в случайные позиции
-    // Вычисляем сколько пикселей нужно для всех байт
-    int pixelsNeeded = (CountText + packLevel - 1) / packLevel;  // Округление вверх
+    // Сколько байт помещается в один пиксель = packLevel
+    int bytesPerPixel = packLevel;
+    int pixelsNeeded = (CountText + bytesPerPixel - 1) / bytesPerPixel;
 
     vector<PixelPosition> positions = GenerateRandomPositions(width, height, pixelsNeeded, seed);
 
     // Записываем байты в пиксели
     int byteIndex = 0;
     for (int i = 0; i < pixelsNeeded && byteIndex < CountText; i++) {
+        // Собираем packLevel байт в одно число
+        unsigned int combinedData = 0;
+        for (int b = 0; b < bytesPerPixel && byteIndex < CountText; b++) {
+            combinedData |= (static_cast<unsigned int>(bList[byteIndex]) << (b * 8));
+            byteIndex++;
+        }
 
         PixelColor pixelColor = GetPixelColor(bPic, positions[i].x, positions[i].y);
-        PixelColor newColor = EmbedSymbolToColorLevel(pixelColor, bList[byteIndex], packLevel);
+        PixelColor newColor = EmbedDataToColorLevel(pixelColor, combinedData, packLevel);
         SetPixelColor(bPic, positions[i].x, positions[i].y, newColor);
-        byteIndex++;
     }
 
     // 6. Дублируем служебную информацию
-    CopyServiceDataToLastRow(bPic);
+    CopyServiceDataToLastRow(bPic, CountText);
 }
 
 // ============ ПРОВЕРКА СЛУЖЕБНОЙ ИНФОРМАЦИИ ============
@@ -524,38 +489,35 @@ bool CheckServiceData(Bitmap* bPic, int& packLevel, int& countSymbol) {
     int height = bPic->GetHeight();
     int lastRow = height - 1;
 
-    // Читаем packLevel из (0,0) с packLevel=1
     packLevel = ReadPackLevel(bPic);
     if (packLevel < 1 || packLevel > 3) {
         packLevel = 1;
     }
 
-    // Читаем первую строку
+    // Читаем первую строку (всегда с packLevel=1 для служебной информации)
     PixelColor colorStart1 = GetPixelColor(bPic, 0, 1);
-    unsigned char chStart1 = ExtractSymbolFromColorLevel(colorStart1, packLevel);
+    unsigned char chStart1 = ExtractSymbolFromColorLevel(colorStart1, 1);
 
     string extStart = "";
     for (int i = 2; i <= 4; i++) {
         PixelColor color = GetPixelColor(bPic, 0, i);
-        unsigned char ch = ExtractSymbolFromColorLevel(color, packLevel);
-        extStart += static_cast<char>(ch);
+        extStart += static_cast<char>(ExtractSymbolFromColorLevel(color, 1));
     }
 
-    int sizeStart = ReadCountTextDynamic(bPic, packLevel, 5);
+    int sizeStart = ReadCountTextDynamic(bPic, packLevel, 5, 0);
     bool hasStart = (chStart1 == '/');
 
-    // Читаем последнюю строку
-    PixelColor colorEnd1 = GetPixelColor(bPic, 1, lastRow); // ВНИМАНИЕ: x=1, а не x=0!
-    unsigned char chEnd1 = ExtractSymbolFromColorLevel(colorEnd1, packLevel);
+    // Читаем последнюю строку (всегда с packLevel=1 для служебной информации)
+    PixelColor colorEnd1 = GetPixelColor(bPic, 1, lastRow);
+    unsigned char chEnd1 = ExtractSymbolFromColorLevel(colorEnd1, 1);
 
     string extEnd = "";
     for (int i = 2; i <= 4; i++) {
         PixelColor color = GetPixelColor(bPic, i, lastRow);
-        unsigned char ch = ExtractSymbolFromColorLevel(color, packLevel);
-        extEnd += static_cast<char>(ch);
+        extEnd += static_cast<char>(ExtractSymbolFromColorLevel(color, 1));
     }
 
-    int sizeEnd = ReadCountTextDynamic(bPic, packLevel, 5);
+    int sizeEnd = ReadCountTextDynamic(bPic, packLevel, 5, lastRow);
     bool hasEnd = (chEnd1 == '/');
 
     // Принимаем решение
@@ -573,13 +535,12 @@ bool CheckServiceData(Bitmap* bPic, int& packLevel, int& countSymbol) {
     else if (hasStart) {
         cout << "\n=== WARNING: Service data mismatch! ===" << endl;
         cout << "First row:  marker='" << (char)chStart1
-            << "' (0x" << hex << (int)chStart1 << dec << ")"
-            << ", ext='" << extStart
+            << "', ext='" << extStart
             << "', size=" << sizeStart << endl;
         cout << "Last row:   marker='" << (char)chEnd1
-            << "' (0x" << hex << (int)chEnd1 << dec << ")"
-            << ", ext='" << extEnd
+            << "', ext='" << extEnd
             << "', size=" << sizeEnd << endl;
+        cout << "=======================================" << endl;
         cout << "Using first row data." << endl;
         countSymbol = sizeStart;
         return true;
@@ -587,13 +548,12 @@ bool CheckServiceData(Bitmap* bPic, int& packLevel, int& countSymbol) {
     else if (hasEnd) {
         cout << "\n=== WARNING: Service data mismatch! ===" << endl;
         cout << "First row:  marker='" << (char)chStart1
-            << "' (0x" << hex << (int)chStart1 << dec << ")"
-            << ", ext='" << extStart
+            << "', ext='" << extStart
             << "', size=" << sizeStart << endl;
         cout << "Last row:   marker='" << (char)chEnd1
-            << "' (0x" << hex << (int)chEnd1 << dec << ")"
-            << ", ext='" << extEnd
+            << "', ext='" << extEnd
             << "', size=" << sizeEnd << endl;
+        cout << "=======================================" << endl;
         cout << "Using last row data." << endl;
         countSymbol = sizeEnd;
         return true;
@@ -612,16 +572,31 @@ string ReadTextFromBMP(Bitmap* bPic) {
         packLevel = 1;
     }
 
-    if (!isEncryptionInBMPLevel(bPic)) {
+    // Проверяем маркер в первой строке (всегда с packLevel=1)
+    PixelColor colorStart = GetPixelColor(bPic, 0, 1);
+    unsigned char chStart = ExtractSymbolFromColorLevel(colorStart, 1);
+    bool hasStart = (chStart == '/');
+
+    // Проверяем маркер в последней строке (всегда с packLevel=1)
+    int height = bPic->GetHeight();
+    int lastRow = height - 1;
+    PixelColor colorEnd = GetPixelColor(bPic, 1, lastRow);
+    unsigned char chEnd = ExtractSymbolFromColorLevel(colorEnd, 1);
+    bool hasEnd = (chEnd == '/');
+
+    if (!hasStart && !hasEnd) {
         MessageBox(NULL, L"No hidden information", L"Information", MB_OK);
         return "";
     }
 
+    int readRow = hasStart ? 0 : lastRow;
+
+    // Читаем расширение (всегда с packLevel=1)
     string extension = "";
     int i = 2;
     while (true) {
-        PixelColor color = GetPixelColor(bPic, 0, i);
-        unsigned char ch = ExtractSymbolFromColorLevel(color, packLevel);
+        PixelColor color = GetPixelColor(bPic, i, readRow);
+        unsigned char ch = ExtractSymbolFromColorLevel(color, 1);
 
         if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '.') {
             extension += static_cast<char>(ch);
@@ -632,7 +607,8 @@ string ReadTextFromBMP(Bitmap* bPic) {
         }
     }
 
-    int countSymbol = ReadCountTextDynamic(bPic, packLevel);
+    // Читаем размер (ВСЕГДА с packLevel=1)
+    int countSymbol = ReadCountTextDynamic(bPic, 1, 5, readRow);
     if (countSymbol <= 0) {
         return "";
     }
@@ -641,16 +617,28 @@ string ReadTextFromBMP(Bitmap* bPic) {
     int countSymbolFromCheck = countSymbol;
     CheckServiceData(bPic, packLevelFromCheck, countSymbolFromCheck);
 
+    packLevel = packLevelFromCheck;
+    countSymbol = countSymbolFromCheck;
+
     vector<unsigned char> message;
     message.reserve(countSymbol);
 
     int width = bPic->GetWidth();
-    int height = bPic->GetHeight();
+    height = bPic->GetHeight();
 
-    for (int x = 4; x < width && (int)message.size() < countSymbol; x++) {
-        for (int y = 0; y < height - 1 && (int)message.size() < countSymbol; y++) {
+    int bytesPerPixel = packLevel;
+    int byteIndex = 0;
+
+    for (int x = 4; x < width && byteIndex < countSymbol; x++) {
+        for (int y = 0; y < height - 1 && byteIndex < countSymbol; y++) {
             PixelColor pixelColor = GetPixelColor(bPic, x, y);
-            message.push_back(ExtractSymbolFromColorLevel(pixelColor, packLevel));
+            unsigned int combinedData = ExtractDataFromColorLevel(pixelColor, packLevel);
+
+            for (int b = 0; b < bytesPerPixel && byteIndex < countSymbol; b++) {
+                unsigned char byte = (combinedData >> (b * 8)) & 0xFF;
+                message.push_back(byte);
+                byteIndex++;
+            }
         }
     }
 
@@ -664,16 +652,33 @@ string ReadTextFromBMP_Encrypted(Bitmap* bPic, unsigned int seed, const char* fi
         packLevel = 1;
     }
 
-    if (!isEncryptionInBMPLevel(bPic)) {
+    // Проверяем маркер в первой строке (всегда с packLevel=1)
+    PixelColor colorStart = GetPixelColor(bPic, 0, 1);
+    unsigned char chStart = ExtractSymbolFromColorLevel(colorStart, 1);
+    bool hasStart = (chStart == '/');
+
+    // Проверяем маркер в последней строке (всегда с packLevel=1)
+    int height = bPic->GetHeight();
+    int lastRow = height - 1;
+    PixelColor colorEnd = GetPixelColor(bPic, 1, lastRow);
+    unsigned char chEnd = ExtractSymbolFromColorLevel(colorEnd, 1);
+    bool hasEnd = (chEnd == '/');
+
+    // Если маркера нет нигде
+    if (!hasStart && !hasEnd) {
         MessageBox(NULL, L"No hidden information", L"Information", MB_OK);
         return "";
     }
 
+    // Определяем, из какой строки читать служебную информацию
+    int readRow = hasStart ? 0 : lastRow;
+
+    // Читаем расширение из выбранной строки (всегда с packLevel=1)
     string extension = "";
     int i = 2;
     while (true) {
-        PixelColor color = GetPixelColor(bPic, 0, i);
-        unsigned char ch = ExtractSymbolFromColorLevel(color, packLevel);
+        PixelColor color = GetPixelColor(bPic, i, readRow);
+        unsigned char ch = ExtractSymbolFromColorLevel(color, 1);
 
         if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '.') {
             extension += static_cast<char>(ch);
@@ -684,11 +689,14 @@ string ReadTextFromBMP_Encrypted(Bitmap* bPic, unsigned int seed, const char* fi
         }
     }
 
-    int countSymbol = ReadCountTextDynamic(bPic, packLevel);
+    // Читаем размер из выбранной строки (ВСЕГДА с packLevel=1, НЕ с packLevel из файла!)
+    int countSymbol = ReadCountTextDynamic(bPic, 1, 5, readRow);  // <-- ЗДЕСЬ БЫЛО packLevel, ИСПРАВИЛ НА 1
     if (countSymbol <= 0) {
+        MessageBox(NULL, L"No hidden information", L"Information", MB_OK);
         return "";
     }
 
+    // Проверяем служебные данные
     int packLevelFromCheck = packLevel;
     int countSymbolFromCheck = countSymbol;
     CheckServiceData(bPic, packLevelFromCheck, countSymbolFromCheck);
@@ -697,37 +705,25 @@ string ReadTextFromBMP_Encrypted(Bitmap* bPic, unsigned int seed, const char* fi
     countSymbol = countSymbolFromCheck;
 
     int width = bPic->GetWidth();
-    int height = bPic->GetHeight();
+    height = bPic->GetHeight();
 
-    // Количество байт для чтения = countSymbol
-    // Количество пикселей для чтения = ceil(countSymbol / packLevel)
-    int pixelsToRead = (countSymbol + packLevel - 1) / packLevel;  // Округление вверх
+    // Сколько байт в одном пикселе = packLevel
+    int bytesPerPixel = packLevel;
+    int pixelsToRead = (countSymbol + bytesPerPixel - 1) / bytesPerPixel;
 
     vector<PixelPosition> positions = GenerateRandomPositions(width, height, pixelsToRead, seed);
     vector<unsigned char> fullData;
     fullData.reserve(countSymbol);
 
     // Читаем все байты из пикселей
-    for (int i = 0; i < pixelsToRead && i < (int)positions.size(); i++) {
+    for (int i = 0; i < pixelsToRead && (int)fullData.size() < countSymbol; i++) {
         PixelColor pixelColor = GetPixelColor(bPic, positions[i].x, positions[i].y);
-        unsigned char byte = ExtractSymbolFromColorLevel(pixelColor, packLevel);
+        unsigned int combinedData = ExtractDataFromColorLevel(pixelColor, packLevel);
 
-        // Извлекаем все байты из этого пикселя
-        // При packLevel=2, пиксель содержит 2 байта
-        // При packLevel=3, пиксель содержит 3 байта
-        for (int b = 0; b < packLevel; b++) {
-            if (fullData.size() < countSymbol) {
-                // Извлекаем байт по частям
-                unsigned char extractedByte = 0;
-                if (b == 0) {
-                    // Первый байт - младшие биты
-                    extractedByte = byte & 0xFF;
-                }
-                else {
-                    extractedByte = (byte >> (b * 8)) & 0xFF;
-                }
-                fullData.push_back(extractedByte);
-            }
+        // Извлекаем байты из комбинированных данных
+        for (int b = 0; b < bytesPerPixel && (int)fullData.size() < countSymbol; b++) {
+            unsigned char byte = (combinedData >> (b * 8)) & 0xFF;
+            fullData.push_back(byte);
         }
     }
 
